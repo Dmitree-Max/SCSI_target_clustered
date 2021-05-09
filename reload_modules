@@ -1,0 +1,23 @@
+modprobe -r tcm_loop target_core_file target_core_iblock target_core_pscsi target_core_user
+modprobe -r iscsi_target_mod
+modprobe -r target_core_mod
+
+cd /lib/modules/5.8.0-50-generic/updates
+
+echo `pwd`
+
+modprobe target_core_mod
+
+modprobe target_core_file 
+
+modprobe target_core_iblock 
+
+modprobe iscsi_target_mod 
+
+modprobe target_core_pscsi 
+
+modprobe target_core_user 
+
+modprobe tcm_loop
+
+cd -

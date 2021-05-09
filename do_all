@@ -1,0 +1,18 @@
+#!/bin/sh
+
+KDIR=/lib/modules/`uname -r`
+
+make KBUILD_EXTRA_SYMBOLS=/media/sf_SF1/dlm_storage/ckv/Module.symvers -C $KDIR/build M=`pwd`/target modules
+
+cp target/target_core_mod.ko $KDIR/updates
+
+
+targetcli "clearconfig confirm=True"
+
+rmdir /sys/kernel/config/target/loopback
+
+rmdir /sys/kernel/config/target/iscsi
+
+./reload_modules
+
+targetcli "restoreconfig ~/sc"
