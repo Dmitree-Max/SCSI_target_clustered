@@ -24,7 +24,9 @@
 #include "target_core_ua.h"
 #include "target_core_alua.h"
 
-extern void dlm_hw(void);
+extern int kv_add_key(const char *key, const char *value);
+extern int kv_lock_key(const char *key_name);
+extern int kv_unlock_key(const char *key_name);
 
 static sense_reason_t
 sbc_check_prot(struct se_device *, struct se_cmd *, unsigned char *, u32, bool);
@@ -452,10 +454,9 @@ static sense_reason_t compare_and_write_callback(struct se_cmd *cmd, bool succes
 	unsigned int compare_len = (nlbas * block_size);
 	sense_reason_t ret = TCM_NO_SENSE;
 	int rc, i;
+	char* kv_key;
 
 	pr_warn("compare_and_write_callback: in\n");
-
-	dlm_hw();
 
 	/*
 	 * Handle early failure in transport_generic_request_failure(),
@@ -504,6 +505,33 @@ static sense_reason_t compare_and_write_callback(struct se_cmd *cmd, bool succes
 		ret = TCM_OUT_OF_RESOURCES;
 		goto out;
 	}
+
+	/*
+	 * Creating key for cluster synchronization.
+	 */
+
+	kv_key = kmalloc(sizeof(unsigned long) + 1, GFP_KERNEL);
+	*kv_key = cmd->t_bidi_data_sg->page_link + cmd->t_bidi_data_sg->offset;
+	kv_key[sizeof(unsigned long) + 1] = '\0';
+
+	/*
+	 * Start of cluster critical section
+	 * Wait on cluster reservation. Key of reservation is cmd->t_bidi_data_sg
+	 */
+	rc = kv_add_key(kv_key, kv_key);
+	if (!rc)
+	{
+		pr_err("kv_add_key() failed for compare_and_write\n");
+		goto out;
+	}
+
+	rc = kv_lock_key(kv_key);
+	if (!rc)
+	{
+		pr_err("kv_lock_key() failed for compare_and_write\n");
+		goto out;
+	}
+
 	/*
 	 * Compare against SCSI READ payload against verify payload
 	 */
@@ -577,6 +605,17 @@ static sense_reason_t compare_and_write_callback(struct se_cmd *cmd, bool succes
 	spin_unlock_irq(&cmd->t_state_lock);
 
 	__target_execute_cmd(cmd, false);
+
+	/*
+	 * We leave cluster critical section.
+	 * Releasing the cluster reverse
+	 */
+	rc = kv_unlock_key(kv_key);
+	if (!rc)
+	{
+		pr_err("kv_unlock_key() failed for compare_and_write\n");
+		goto out;
+	}
 
 	kfree(buf);
 	return ret;
